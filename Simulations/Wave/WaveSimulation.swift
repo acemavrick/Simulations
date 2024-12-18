@@ -11,7 +11,7 @@ import MetalKit
 struct WaveSimulationView: NSViewRepresentable {
     
     func makeCoordinator() -> WaveCoordinator {
-        WaveCoordinator(self, size: SIMD2<Float>(1000, 1000), dx: 0.0005, dt: 0.00005, c: 2.0)
+        WaveCoordinator(self, size: 1000, dx: 0.0005, dt: 0.00005, c: 4.0)
     }
     
     func updateNSView(_ nsView: MTKView, context: Context) {
@@ -45,15 +45,16 @@ struct WaveSimulationView: NSViewRepresentable {
         var size: SIMD2<Float>
         var uniforms: WaveSimUniforms
         var computePipelineState: MTLComputePipelineState?
+        var copyPipelineState: MTLComputePipelineState?
         var u_prev: MTLBuffer?
         var u_curr: MTLBuffer?
         var u_next: MTLBuffer?
         
         static var isRunning = false
         
-        init(_ parent: WaveSimulationView, size: SIMD2<Float>, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
+        init(_ parent: WaveSimulationView, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
             self.parent = parent
-            self.size = size
+            self.size = SIMD2<Float>(s, s)
             self.uniforms = WaveSimUniforms(dx: dx, dt: dt, c: c,
                                             resolution: SIMD2<Float>(0, 0),
                                             simSize: size)
@@ -69,7 +70,8 @@ struct WaveSimulationView: NSViewRepresentable {
             let library = device.makeDefaultLibrary()
             
             // make the functions
-            guard let kernelFunction = library?.makeFunction(name: "wave_compute") else {
+            guard let kernelFunction = library?.makeFunction(name: "wave_compute"),
+                  let copyFunction = library?.makeFunction(name: "wave_copy") else {
                 fatalError("Unable to load compute function")
             }
             guard let vertexFunction = library?.makeFunction(name: "wave_vertex") else {
@@ -108,8 +110,8 @@ struct WaveSimulationView: NSViewRepresentable {
             }
 
             // disturbance at the center
-//            gaussianPulse(x: Int(size.x) / 2, y: Int(size.y) / 2, r: 20, a: 4.0)
-            ring(x: Int(size.x) / 2, y: Int(size.y) / 2, a: 4.0, rOuter: 70, rInner: 65)
+            gaussianPulse(x: Int(size.x) / 2, y: Int(size.y) / 2, r: 20, a: 4.0)
+//            ring(x: Int(size.x) / 2, y: Int(size.y) / 2, a: 4.0, rOuter: 400, rInner: 380)
             
             // set previous after setting initial state
             for i in 0..<Int(size.x * size.y) {
@@ -119,6 +121,7 @@ struct WaveSimulationView: NSViewRepresentable {
             // set up compute pipeline
             do {
                 self.computePipelineState = try device.makeComputePipelineState(function: kernelFunction)
+                self.copyPipelineState = try device.makeComputePipelineState(function: copyFunction)
             } catch {
                 fatalError("Unable to compile compute pipeline state: \(error)")
             }
@@ -190,12 +193,10 @@ struct WaveSimulationView: NSViewRepresentable {
                 )
                 
                 computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
-                computeEncoder.endEncoding()
                 
-                let tmp = u_p
-                u_prev = u_curr
-                u_curr = u_next
-                u_next = tmp
+                computeEncoder.setComputePipelineState(self.copyPipelineState!)
+                computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+                computeEncoder.endEncoding()
             }
             
             // Render Pass

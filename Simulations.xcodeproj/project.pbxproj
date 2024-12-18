@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DBEF7B4B2D0F50340076BB67 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B482D0F50340076BB67 /* Metal.framework */; };
-		DBEF7B4C2D0F50340076BB67 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B492D0F50340076BB67 /* MetalKit.framework */; };
 		DBEF7B4D2D0F50340076BB67 /* MetalPerformanceShaders.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B4A2D0F50340076BB67 /* MetalPerformanceShaders.framework */; };
+		DBF0A1312D132A140006E737 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B482D0F50340076BB67 /* Metal.framework */; };
+		DBF0A1342D132A160006E737 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B492D0F50340076BB67 /* MetalKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,8 +32,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DBEF7B4B2D0F50340076BB67 /* Metal.framework in Frameworks */,
-				DBEF7B4C2D0F50340076BB67 /* MetalKit.framework in Frameworks */,
+				DBF0A1342D132A160006E737 /* MetalKit.framework in Frameworks */,
+				DBF0A1312D132A140006E737 /* Metal.framework in Frameworks */,
 				DBEF7B4D2D0F50340076BB67 /* MetalPerformanceShaders.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -279,6 +279,8 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Simulations/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Simulations;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.simulation-games";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -305,6 +307,8 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Simulations/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Simulations;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.simulation-games";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -28,11 +28,11 @@ vertex float4 wave_vertex(uint vertexID [[vertex_id]]) {
 }
 
 // function to get a value from the Buffer
-float get(device float* buffer, int index, int maxSize) {
-    if (index < 0 || index >= maxSize) {
+float get(device float* buffer, int x, int y, float2 dims) {
+    if (x < 0 || y < 0 || x >= dims.x || y >= dims.y) {
         return 0.0;
     }
-    return buffer[index];
+    return buffer[int(x + y * dims.x)];
 }
 
 kernel void wave_compute(device float* u_p [[buffer(0)]],
@@ -41,9 +41,29 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
                          constant WaveSimUniforms &uniforms [[buffer(3)]],
                          uint2 gid [[thread_position_in_grid]]) {
     // fill out
-    int width = int(uniforms.simSize.x);
-    int height = int(uniforms.simSize.y);
-    int maxSize = width * height;
+    int index = int(gid.y * uniforms.simSize.x + gid.x);
+    
+    if (gid.x >= uniforms.simSize.x || gid.y >= uniforms.simSize.y) {
+        return;
+    }
+    
+    float laplacianMultiplier = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
+    float laplacian = laplacianMultiplier * (get(u_c, gid.x - 1, gid.y, uniforms.simSize) +
+                                            get(u_c, gid.x + 1, gid.y, uniforms.simSize) +
+                                            get(u_c, gid.x, gid.y - 1, uniforms.simSize) +
+                                            get(u_c, gid.x, gid.y + 1, uniforms.simSize) - 4.0 * u_c[index]);
+    
+    
+    u_n[index] = laplacian + 2.0 * u_c[index] - u_p[index];
+}
+
+kernel void wave_copy(device float* u_p [[buffer(0)]],
+                      device float* u_c [[buffer(1)]],
+                        device float* u_n [[buffer(2)]],
+                      constant WaveSimUniforms &uniforms [[buffer(3)]],
+                      uint2 gid [[thread_position_in_grid]]) {
+    uint width = uniforms.simSize.x;
+    uint height = uniforms.simSize.y;
     
     int index = gid.y * width + gid.x;
     
@@ -51,13 +71,9 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
         return;
     }
     
-    float laplacianMultiplier = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
-    float laplacian = laplacianMultiplier * (get(u_c, index - 1, maxSize) +
-                                        get(u_c, index + 1, maxSize) +
-                                        get(u_c, index - width, maxSize) +
-                                        get(u_c, index + width, maxSize) - 4.0 * get(u_c, index, maxSize));
+    u_p[index] = u_c[index];
+    u_c[index] = u_n[index];
     
-    u_n[index] = laplacian + 2.0 * u_c[index] - u_p[index];
 }
 
 float3 cmap(constant WaveSimUniforms &uniforms,
