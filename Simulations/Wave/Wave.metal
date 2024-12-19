@@ -27,15 +27,14 @@ vertex float4 wave_vertex(uint vertexID [[vertex_id]]) {
     return positions[vertexID];
 }
 
-float4 get(texture2d<float, access::read_write> t, uint2 gid) {
-    if (gid.x >= t.get_width() || gid.y >= t.get_height()) {
-        return float4(0.0);
+float get(texture2d<float, access::read_write> t, uint x, uint y) {
+    if (x >= t.get_width() || y >= t.get_height()) {
+        return 0.0;
     }
-    return t.read(gid);
+    return t.read(uint2(x, y)).g;
 }
 
 kernel void wave_compute(texture2d<float, access::read_write> t [[texture(0)]],
-                         texture2d<float, access::read> laplacian [[texture(1)]],
                          constant WaveSimUniforms &uniforms [[buffer(0)]],
                          uint2 gid [[thread_position_in_grid]]) {
     
@@ -49,8 +48,27 @@ kernel void wave_compute(texture2d<float, access::read_write> t [[texture(0)]],
     float u_c = state.g;
     
     float mult = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
+    /*
+    [0 0 0 2 0 0 0,
+     0 0 0 -27 0 0 0,
+     0 0 0 270 0 0 0,
+     2 -27 270 -490 270 -27 2,
+        0 0 0 270 0 0 0,
+        0 0 0 -27 0 0 0,
+        0 0 0 2 0 0 0]
+    */
     
-    float calcVal = 2.0 * u_c - u_p + laplacian.read(gid).g * mult;
+//    float laplacian = mult * (
+//    2*get(t, gid.x - 3, gid.y) - 27*get(t, gid.x - 2, gid.y) + 270*get(t, gid.x - 1, gid.y) +
+//    2*get(t, gid.x, gid.y - 3) - 27*get(t, gid.x, gid.y - 2) + 270*get(t, gid.x, gid.y - 1) -
+//    490*u_c + 270*get(t, gid.x, gid.y + 1) - 27*get(t, gid.x, gid.y + 2) + 2*get(t, gid.x, gid.y + 3) +
+//    270*get(t, gid.x + 1, gid.y) - 27*get(t, gid.x + 2, gid.y) + 2*get(t, gid.x + 3, gid.y))/180.0;
+    float laplacian = mult * (
+    get(t, gid.x - 1, gid.y) - 4*u_c + get(t, gid.x + 1, gid.y) +
+                              get(t, gid.x, gid.y - 1) + get(t, gid.x, gid.y + 1));
+                              
+    
+    float calcVal = 2.0 * u_c - u_p + laplacian;
     state.b = calcVal;
     t.write(state, gid);
 }

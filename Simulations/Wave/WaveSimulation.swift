@@ -48,11 +48,6 @@ struct WaveSimulationView: NSViewRepresentable {
         var computePipelineState: MTLComputePipelineState?
         var copyPipelineState: MTLComputePipelineState?
         var u_tot: MTLTexture?
-        var laplacian: MTLTexture?
-        var image_convolver: MPSImageConvolution?
-        
-        // for the compute function, u_tot will be read from and u_next will be written to
-        // for the copy function, u_next will be used to write to u_tot
         
         static var isRunning = false
         
@@ -104,13 +99,8 @@ struct WaveSimulationView: NSViewRepresentable {
             textureDescriptor.height = Int(size.y)
             textureDescriptor.usage = [.shaderRead, .shaderWrite]
             self.u_tot = device.makeTexture(descriptor: textureDescriptor)
-            self.laplacian = device.makeTexture(descriptor: textureDescriptor)
             
             // populate everything with 0s
-            let region = MTLRegionMake2D(0, 0, Int(size.x), Int(size.y))
-            let zeroData = [Float](repeating: 0, count: Int(size.x) * Int(size.y))
-            self.laplacian?.replace(region: region, mipmapLevel: 0, withBytes: zeroData, bytesPerRow: Int(size.x) * MemoryLayout<Float>.stride * 4)
-            
             let centerRegion = MTLRegionMake2D(Int(size.x) / 2 - 10, Int(size.y) / 2 - 10, 20, 20)
             let disturbanceData = [Float](repeating: 10, count: 20 * 20 * 4) // 4 channels
             self.u_tot?.replace(
@@ -130,13 +120,6 @@ struct WaveSimulationView: NSViewRepresentable {
             } catch {
                 fatalError("Unable to compile compute pipeline state: \(error)")
             }
-            
-            let weights =
-            [0, 1, 0,
-            1, -4, 1,
-            0, 1, 0]
-                .map({ Float($0) })
-            self.image_convolver = MPSImageConvolution(device: device, kernelWidth: 3, kernelHeight: 3, weights: weights)
         }
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -179,23 +162,19 @@ struct WaveSimulationView: NSViewRepresentable {
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
                   let commandQueue = self.commandQueue,
-                  let u_tot = self.u_tot,
-                  let imConv = self.image_convolver,
-                  let lap = self.laplacian else {return}
+                  let u_tot = self.u_tot
+            else {return}
                 
             let commandBuffer = commandQueue.makeCommandBuffer()
 
             // Compute Pass
             if Coordinator.isRunning {
-                imConv.encode(commandBuffer: commandBuffer!, sourceTexture: u_tot, destinationTexture: lap)
-                
                 // only compute if simulation is running
                 guard let computeEncoder = commandBuffer?.makeComputeCommandEncoder() else { return }
                 
                 computeEncoder.setComputePipelineState(self.computePipelineState!)
                 
                 computeEncoder.setTexture(u_tot, index: 0)
-                computeEncoder.setTexture(lap, index: 1)
                 computeEncoder.setBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 0)
                 
                 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
