@@ -27,53 +27,45 @@ vertex float4 wave_vertex(uint vertexID [[vertex_id]]) {
     return positions[vertexID];
 }
 
-// function to get a value from the Buffer
-float get(device float* buffer, int x, int y, float2 dims) {
-    if (x < 0 || y < 0 || x >= dims.x || y >= dims.y) {
-        return 0.0;
+float4 get(texture2d<float, access::read_write> t, uint2 gid) {
+    if (gid.x >= t.get_width() || gid.y >= t.get_height()) {
+        return float4(0.0);
     }
-    return buffer[int(x + y * dims.x)];
+    return t.read(gid);
 }
 
-kernel void wave_compute(device float* u_p [[buffer(0)]],
-                         device float* u_c [[buffer(1)]],
-                         device float* u_n [[buffer(2)]],
-                         constant WaveSimUniforms &uniforms [[buffer(3)]],
+kernel void wave_compute(texture2d<float, access::read_write> t [[texture(0)]],
+                         texture2d<float, access::read> laplacian [[texture(1)]],
+                         constant WaveSimUniforms &uniforms [[buffer(0)]],
                          uint2 gid [[thread_position_in_grid]]) {
-    // fill out
-    int index = int(gid.y * uniforms.simSize.x + gid.x);
     
+    // read from t, write to u_n
     if (gid.x >= uniforms.simSize.x || gid.y >= uniforms.simSize.y) {
         return;
     }
     
-    float laplacianMultiplier = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
-    float laplacian = laplacianMultiplier * (get(u_c, gid.x - 1, gid.y, uniforms.simSize) +
-                                            get(u_c, gid.x + 1, gid.y, uniforms.simSize) +
-                                            get(u_c, gid.x, gid.y - 1, uniforms.simSize) +
-                                            get(u_c, gid.x, gid.y + 1, uniforms.simSize) - 4.0 * u_c[index]);
+    float4 state = t.read(gid);
+    float u_p = state.r;
+    float u_c = state.g;
     
+    float mult = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
     
-    u_n[index] = laplacian + 2.0 * u_c[index] - u_p[index];
+    float calcVal = 2.0 * u_c - u_p + laplacian.read(gid).g * mult;
+    state.b = calcVal;
+    t.write(state, gid);
 }
 
-kernel void wave_copy(device float* u_p [[buffer(0)]],
-                      device float* u_c [[buffer(1)]],
-                        device float* u_n [[buffer(2)]],
-                      constant WaveSimUniforms &uniforms [[buffer(3)]],
+kernel void wave_copy(texture2d<float, access::read_write> t [[texture(0)]],
+                      constant WaveSimUniforms &uniforms [[buffer(0)]],
                       uint2 gid [[thread_position_in_grid]]) {
-    uint width = uniforms.simSize.x;
-    uint height = uniforms.simSize.y;
-    
-    int index = gid.y * width + gid.x;
-    
-    if (gid.x >= width || gid.y >= height) {
+    if (gid.x >= uniforms.simSize.x || gid.y >= uniforms.simSize.y) {
         return;
     }
     
-    u_p[index] = u_c[index];
-    u_c[index] = u_n[index];
-    
+    float4 state = t.read(gid);
+    state.r = state.g;
+    state.g = state.b;
+    t.write(state, gid);
 }
 
 float3 cmap(constant WaveSimUniforms &uniforms,
@@ -83,14 +75,9 @@ float3 cmap(constant WaveSimUniforms &uniforms,
 
 fragment float4 wave_fragment(float4 fragCoord [[position]],
                               constant WaveSimUniforms &uniforms [[buffer(0)]],
-                              constant float *u [[buffer(1)]]) {
-    float2 index = fragCoord.xy / uniforms.resolution;
-    float2 simIndex = index * uniforms.simSize;
-    
-    uint2 i = uint2(clamp(simIndex, float2(0.0), uniforms.simSize - 1.0));
-    
-    // Get the value of the wave at the current pixel
-    float val = u[i.x + i.y * uint(uniforms.simSize.x)];
+                                texture2d<float, access::read> u_c [[texture(0)]]) {
+    float2 loc = fragCoord.xy * uniforms.simSize / uniforms.resolution;
+    float val = u_c.read(uint2(loc)).b;
     return float4(cmap(uniforms, min(val, 1.0)), 1.0);
 }
 

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MetalKit
+import MetalPerformanceShaders
 
 struct WaveSimulationView: NSViewRepresentable {
     
@@ -46,9 +47,12 @@ struct WaveSimulationView: NSViewRepresentable {
         var uniforms: WaveSimUniforms
         var computePipelineState: MTLComputePipelineState?
         var copyPipelineState: MTLComputePipelineState?
-        var u_prev: MTLBuffer?
-        var u_curr: MTLBuffer?
-        var u_next: MTLBuffer?
+        var u_tot: MTLTexture?
+        var laplacian: MTLTexture?
+        var image_convolver: MPSImageConvolution?
+        
+        // for the compute function, u_tot will be read from and u_next will be written to
+        // for the copy function, u_next will be used to write to u_tot
         
         static var isRunning = false
         
@@ -93,31 +97,32 @@ struct WaveSimulationView: NSViewRepresentable {
                 fatalError("Unable to compile render pipeline state: \(error)")
             }
             
-            // initialize u & v buffers
-            let bufferSize = Int(size.x * size.y) * MemoryLayout<Float>.stride;
-            self.u_prev = device.makeBuffer(length: bufferSize, options: .storageModeShared);
-            self.u_curr = device.makeBuffer(length: bufferSize, options: .storageModeShared);
-            self.u_next = device.makeBuffer(length: bufferSize, options: .storageModeShared);
-
-            // fill with data
-            let upPointer = u_prev?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))
-            let ucPointer = u_curr?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))
-            let unPointer = u_next?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))
-
-            for i in 0..<Int(size.x * size.y) {
-                ucPointer?[i] = 0.0
-                unPointer?[i] = 0.0
-            }
-
-            // disturbance at the center
-            gaussianPulse(x: Int(size.x) / 2, y: Int(size.y) / 2, r: 20, a: 4.0)
-//            ring(x: Int(size.x) / 2, y: Int(size.y) / 2, a: 4.0, rOuter: 400, rInner: 380)
+            // initialize textures
+            let textureDescriptor = MTLTextureDescriptor()
+            textureDescriptor.pixelFormat = .rgba32Float
+            textureDescriptor.width = Int(size.x)
+            textureDescriptor.height = Int(size.y)
+            textureDescriptor.usage = [.shaderRead, .shaderWrite]
+            self.u_tot = device.makeTexture(descriptor: textureDescriptor)
+            self.laplacian = device.makeTexture(descriptor: textureDescriptor)
             
-            // set previous after setting initial state
-            for i in 0..<Int(size.x * size.y) {
-                upPointer?[i] = ucPointer?[i] ?? 0.0
-            }
-
+            // populate everything with 0s
+            let region = MTLRegionMake2D(0, 0, Int(size.x), Int(size.y))
+            let zeroData = [Float](repeating: 0, count: Int(size.x) * Int(size.y))
+            self.laplacian?.replace(region: region, mipmapLevel: 0, withBytes: zeroData, bytesPerRow: Int(size.x) * MemoryLayout<Float>.stride * 4)
+            
+            let centerRegion = MTLRegionMake2D(Int(size.x) / 2 - 10, Int(size.y) / 2 - 10, 20, 20)
+            let disturbanceData = [Float](repeating: 10, count: 20 * 20 * 4) // 4 channels
+            self.u_tot?.replace(
+                region: centerRegion,
+                mipmapLevel: 0,
+                withBytes: disturbanceData,
+                bytesPerRow: 20 * MemoryLayout<Float>.stride * 4
+            )
+            
+            //            gaussianPulse(x: Int(size.x) / 2, y: Int(size.y) / 2, r: 20, a: 4.0)
+            //            ring(x: Int(size.x) / 2, y: Int(size.y) / 2, a: 4.0, rOuter: 400, rInner: 380)
+            
             // set up compute pipeline
             do {
                 self.computePipelineState = try device.makeComputePipelineState(function: kernelFunction)
@@ -125,6 +130,13 @@ struct WaveSimulationView: NSViewRepresentable {
             } catch {
                 fatalError("Unable to compile compute pipeline state: \(error)")
             }
+            
+            let weights =
+            [0, 1, 0,
+            1, -4, 1,
+            0, 1, 0]
+                .map({ Float($0) })
+            self.image_convolver = MPSImageConvolution(device: device, kernelWidth: 3, kernelHeight: 3, weights: weights)
         }
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -140,7 +152,7 @@ struct WaveSimulationView: NSViewRepresentable {
                     if 0 <= xi && xi < Int(size.x) && 0 <= yj && yj < Int(size.y) {
                         let distanceSquared = Float(i * i + j * j)
                         if distanceSquared <= Float(rOuter * rOuter) && distanceSquared >= Float(rInner * rInner) {
-                            u_curr?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))[xi + yj * Int(size.x)] = a
+//                            u_curr?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))[xi + yj * Int(size.x)] = a
                         }
                     }
                 }
@@ -157,7 +169,7 @@ struct WaveSimulationView: NSViewRepresentable {
                     if 0 <= xi && xi < Int(size.x) && 0 <= yj && yj < Int(size.y) {
                         let distanceSquared = Float(i * i + j * j)
                         if distanceSquared <= Float(r * r) {
-                            u_curr?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))[xi + yj * Int(size.x)] = a * exp(-distanceSquared / (2 * sigma * sigma))
+//                            u_curr?.contents().bindMemory(to: Float.self, capacity: Int(size.x * size.y))[xi + yj * Int(size.x)] = a * exp(-distanceSquared / (2 * sigma * sigma))
                         }
                     }
                 }
@@ -167,22 +179,24 @@ struct WaveSimulationView: NSViewRepresentable {
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
                   let commandQueue = self.commandQueue,
-                  let u_p = self.u_prev,
-                  let u_c = self.u_curr,
-                  let u_n = self.u_next else { return }
-            
+                  let u_tot = self.u_tot,
+                  let imConv = self.image_convolver,
+                  let lap = self.laplacian else {return}
+                
             let commandBuffer = commandQueue.makeCommandBuffer()
 
             // Compute Pass
             if Coordinator.isRunning {
+                imConv.encode(commandBuffer: commandBuffer!, sourceTexture: u_tot, destinationTexture: lap)
+                
                 // only compute if simulation is running
                 guard let computeEncoder = commandBuffer?.makeComputeCommandEncoder() else { return }
+                
                 computeEncoder.setComputePipelineState(self.computePipelineState!)
                 
-                computeEncoder.setBuffer(u_p, offset: 0, index: 0)
-                computeEncoder.setBuffer(u_c, offset: 0, index: 1)
-                computeEncoder.setBuffer(u_n, offset: 0, index: 2)
-                computeEncoder.setBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 3)
+                computeEncoder.setTexture(u_tot, index: 0)
+                computeEncoder.setTexture(lap, index: 1)
+                computeEncoder.setBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 0)
                 
                 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
                 
@@ -209,9 +223,8 @@ struct WaveSimulationView: NSViewRepresentable {
             // update uniform
             self.uniforms.resolution = SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height))
             
-            let u = u_curr
             renderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 0)
-            renderEncoder.setFragmentBuffer(u, offset: 0, index: 1)
+            renderEncoder.setFragmentTexture(u_tot, index: 0)
             
             renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 6)
             renderEncoder.endEncoding()
