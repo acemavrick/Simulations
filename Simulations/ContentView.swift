@@ -1,19 +1,31 @@
 //
 //  ContentView.swift
-//  ShaderTest
 //
 //
 
 import SwiftUI
 
 struct ContentView: View {
-    var targetSimulationView = WaveSimulationView()
     @State var hovering = false
+    @StateObject var simulationViewModel = WaveSimulationViewModel()
+
     var body: some View {
         // a play/pause button at bottom
         HStack {
             ZStack(alignment: .topLeading) {
-                targetSimulationView
+                WaveSimulationView(viewModel: simulationViewModel)
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                simulationViewModel.tapLocation = value.location
+                            }
+                    )
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                simulationViewModel.tapLocation = value.location
+                            }
+                    )
 
                 HStack {
                     Button(action: {play()}) {
@@ -31,22 +43,23 @@ struct ContentView: View {
                 .opacity(hovering ? 1.0 : 0.0)
                 .animation(.easeInOut)
             }
-            .aspectRatio(1, contentMode: .fit)
+//            .aspectRatio(1, contentMode: .fit)
             .onHover(perform: { hovering in
                 self.hovering = hovering
             })
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red:0.274344,green:0.004462,blue:0.331359))
+        .background(Color(red:0.2,green:0.2,blue:0.2))
+//        .background(Color(red:0.274344,green:0.004462,blue:0.331359))
     }
     
     
     func play() {
-        targetSimulationView.play()
+        simulationViewModel.play = true
     }
     
     func pause() {
-        targetSimulationView.pause()
+        simulationViewModel.play = false
     }
 }
 

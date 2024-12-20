@@ -10,7 +10,7 @@ using namespace metal;
 
 struct WaveSimUniforms {
     // for use in Wave Simulation
-    float dx, dt, c;
+    float dx, dt, c, time, damper;
     float2 resolution, simSize;
     float3 c0, c1, c2, c3, c4, c5, c6;
 };
@@ -47,6 +47,11 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
         return;
     }
     
+    if (gid.x == uniforms.simSize.x/2 && gid.y == uniforms.simSize.y/2) {
+        u_n[index] = sin(uniforms.time*3.0)*2.002;
+        return;
+    }
+    
     float laplacianMultiplier = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
     float laplacian = laplacianMultiplier * (get(u_c, gid.x - 1, gid.y, uniforms.simSize) +
                                             get(u_c, gid.x + 1, gid.y, uniforms.simSize) +
@@ -54,7 +59,9 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
                                             get(u_c, gid.x, gid.y + 1, uniforms.simSize) - 4.0 * u_c[index]);
     
     
-    u_n[index] = laplacian + 2.0 * u_c[index] - u_p[index];
+    float val = laplacian + 2.0 * u_c[index] - u_p[index];
+    val *= uniforms.damper;
+    u_n[index] = val;
 }
 
 kernel void wave_copy(device float* u_p [[buffer(0)]],
@@ -94,10 +101,20 @@ fragment float4 wave_fragment(float4 fragCoord [[position]],
     return float4(cmap(uniforms, min(val, 1.0)), 1.0);
 }
 
+fragment float4 wave_fragment_grey(float4 fragCoord [[position]],
+                              constant WaveSimUniforms &uniforms [[buffer(0)]],
+                              constant float *u [[buffer(1)]]) {
+    uint2 loc = uint2(fragCoord.xy);
+    uint2 i = uint2(clamp(loc, uint2(0), uint2(uniforms.simSize - 1)));
+    
+    // Get the value of the wave at the current pixel
+    float val = u[i.x + i.y * uint(uniforms.simSize.x)];
+    return float4(float3(val+0.5), 1.0);
+}
+
 fragment float4 wave_fragment_test(float4 fragCoord [[position]],
                                    constant WaveSimUniforms &uniforms [[buffer(0)]]) {
-    float2 uv = fragCoord.xy / uniforms.resolution;
-    float val = uv.x/uv.y;
-    float3 color = mix(float3(0.0, 0.0, 1.0), float3(1.0, 0.0, 0.0), val);
-    return float4(color, 1.0);
+    float2 val = uniforms.resolution/uniforms.simSize;
+//    float3 color = mix(float3(0.0, 0.0, 1.0), float3(1.0, 0.0, 0.0), val);
+    return float4(val,0.0, 1.0);
 }
