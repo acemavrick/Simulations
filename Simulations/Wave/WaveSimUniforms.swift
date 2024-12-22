@@ -26,7 +26,6 @@ struct WaveSimUniforms {
         
         self.resolution = resolution
         self.simSize = simSize
-//        self.time = Float(CFAbsoluteTimeGetCurrent())
 
         // viridis
         self.c0 = SIMD3<Float>(0.274344,0.004462,0.331359)

@@ -6,6 +6,9 @@
 
 #include <metal_stdlib>
 
+# define PI 3.1415
+# define TPI 6.283
+
 using namespace metal;
 
 struct WaveSimUniforms {
@@ -47,11 +50,15 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
         return;
     }
     
-    if (gid.x == uniforms.simSize.x/2 && gid.y == uniforms.simSize.y/2) {
-        u_n[index] = sin(uniforms.time*3.0)*2.002;
+    float yoverx = (gid.y - uniforms.simSize.y/2)/(gid.x - uniforms.simSize.x/2);
+    float at = fmod(atan(yoverx) + uniforms.time, PI);
+    float l = length(float2(gid.xy)-uniforms.simSize.xy/2);
+    
+    if (l >= 18.0 && l <= 20.0 && at <= 0.1) {
+        u_n[index] = sin(uniforms.time*1.2)*1.002;
         return;
     }
-    
+
     float laplacianMultiplier = uniforms.dx > 0.0 ? pow(uniforms.dt * uniforms.c / uniforms.dx, 2.0) : 0.0;
     float laplacian = laplacianMultiplier * (get(u_c, gid.x - 1, gid.y, uniforms.simSize) +
                                             get(u_c, gid.x + 1, gid.y, uniforms.simSize) +
@@ -91,10 +98,8 @@ float3 cmap(constant WaveSimUniforms &uniforms,
 fragment float4 wave_fragment(float4 fragCoord [[position]],
                               constant WaveSimUniforms &uniforms [[buffer(0)]],
                               constant float *u [[buffer(1)]]) {
-    float2 index = fragCoord.xy / uniforms.resolution;
-    float2 simIndex = index * uniforms.simSize;
-    
-    uint2 i = uint2(clamp(simIndex, float2(0.0), uniforms.simSize - 1.0));
+    uint2 loc = uint2(fragCoord.xy);
+    uint2 i = uint2(clamp(loc, uint2(0), uint2(uniforms.simSize - 1)));
     
     // Get the value of the wave at the current pixel
     float val = u[i.x + i.y * uint(uniforms.simSize.x)];
