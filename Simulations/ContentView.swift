@@ -7,25 +7,28 @@ import SwiftUI
 
 struct ContentView: View {
     @State var hovering = false
-    @StateObject var simulationViewModel = WaveSimulationViewModel()
+//    @StateObject var simulationViewModel = WaveSimulationViewModel()
+    @StateObject var simulationViewModel = GravityViewModel()
 
     var body: some View {
         // a play/pause button at bottom
         HStack {
             ZStack(alignment: .topLeading) {
-                WaveSimulationView(viewModel: simulationViewModel)
-                    .gesture(
-                        SpatialTapGesture()
-                            .onEnded { value in
-                                simulationViewModel.tapLocation = value.location
-                            }
-                    )
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                simulationViewModel.tapLocation = value.location
-                            }
-                    )
+                GravityView(viewModel: simulationViewModel)
+                
+//                WaveSimulationView(viewModel: simulationViewModel)
+//                    .gesture(
+//                        SpatialTapGesture()
+//                            .onEnded { value in
+//                                simulationViewModel.tapLocation = value.location
+//                            }
+//                    )
+//                    .gesture(
+//                        DragGesture()
+//                            .onChanged { value in
+//                                simulationViewModel.tapLocation = value.location
+//                            }
+//                    )
 
                 HStack {
                     Button(action: {play()}) {
