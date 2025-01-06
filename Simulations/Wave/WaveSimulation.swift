@@ -216,7 +216,6 @@ struct WaveSimulationView: NSViewRepresentable {
             if viewModel.play {
                 // only compute if simulation is running
                 guard let computeEncoder = commandBuffer?.makeComputeCommandEncoder() else { return }
-                computeEncoder.setComputePipelineState(self.computePipelineState!)
                 
                 computeEncoder.setBuffer(u_p, offset: 0, index: 0)
                 computeEncoder.setBuffer(u_c, offset: 0, index: 1)
@@ -231,10 +230,14 @@ struct WaveSimulationView: NSViewRepresentable {
                     depth: 1
                 )
                 
-                computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+                for _ in 0..<5 {
+                    computeEncoder.setComputePipelineState(self.computePipelineState!)
+                    computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+                    
+                    computeEncoder.setComputePipelineState(self.copyPipelineState!)
+                    computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
+                }
                 
-                computeEncoder.setComputePipelineState(self.copyPipelineState!)
-                computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
                 computeEncoder.endEncoding()
             }
             
