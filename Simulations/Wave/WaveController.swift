@@ -9,8 +9,8 @@ import SwiftUI
 import MetalKit
 import Combine
 
-struct WaveSimulationView: NSViewRepresentable {
-    @ObservedObject var viewModel: WaveSimulationViewModel
+struct WaveController: NSViewRepresentable {
+    @ObservedObject var viewModel: WaveViewModel
     
     func makeCoordinator() -> WaveCoordinator {
         WaveCoordinator(self, viewModel: self.viewModel, size: 1000, dx: 0.0005, dt: 0.00005, c: 4.0)
@@ -21,22 +21,24 @@ struct WaveSimulationView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> MTKView {
-        let view = MTKView()
+        let view = MTKView(frame: .zero)
         view.device = MTLCreateSystemDefaultDevice()
         view.delegate = context.coordinator
         view.framebufferOnly = false
+        view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }
     
     class WaveCoordinator: NSObject, MTKViewDelegate {
+        var device_scale: CGFloat = 1.0
         var sizeChangeTimer: Timer?
-        var sizeChangeTime: TimeInterval = 0.0
-        var viewModel: WaveSimulationViewModel
-        var parent: WaveSimulationView
+        var sizeChangeTime: TimeInterval = 0.2
+        var viewModel: WaveViewModel
+        var parent: WaveController
         var commandQueue: MTLCommandQueue?
         var renderPipelineState: MTLRenderPipelineState?
         var size: SIMD2<Float>
-        var uniforms: WaveSimUniforms
+        var uniforms: WaveUniforms
         var computePipelineState: MTLComputePipelineState?
         var copyPipelineState: MTLComputePipelineState?
         var startTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
@@ -48,16 +50,28 @@ struct WaveSimulationView: NSViewRepresentable {
         var unPtr: UnsafeMutablePointer<Float>?
         var cancellables: Set<AnyCancellable> = []
         
-        init(_ parent: WaveSimulationView, viewModel: WaveSimulationViewModel, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
+        init(_ parent: WaveController, viewModel: WaveViewModel, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
             self.parent = parent
             self.viewModel = viewModel
             self.size = SIMD2<Float>(s, s)
-            self.uniforms = WaveSimUniforms(dx: dx, dt: dt, c: c,
+            self.uniforms = WaveUniforms(dx: dx, dt: dt, c: c,
                                             resolution: SIMD2<Float>(0, 0),
                                             simSize: size)
             super.init()
             self.observeViewModel()
             setupMetalResources()
+        }
+        
+        func syncViewModel() {
+            let unis = self.uniforms
+            let viewModel = self.viewModel
+            DispatchQueue.main.async {
+                viewModel.dx = unis.dx
+                viewModel.dt = unis.dt
+                viewModel.c = unis.c
+                viewModel.dampening = unis.damper
+                viewModel.resolution = unis.resolution
+            }
         }
         
         func observeViewModel() {
@@ -67,8 +81,8 @@ struct WaveSimulationView: NSViewRepresentable {
                     guard let self=self else { return }
                     guard let location=location else { return }
                     print("tap at \(location)")
-                    let x = location.x*2.0
-                    let y = location.y*2.0
+                    let x = location.x * self.device_scale
+                    let y = location.y * self.device_scale
                     gaussianPulse(x: Int(x), y: Int(y), r: 5)
                 }
                 .store(in: &cancellables)
@@ -92,7 +106,7 @@ struct WaveSimulationView: NSViewRepresentable {
             guard let vertexFunction = library?.makeFunction(name: "wave_vertex") else {
                 fatalError("Unable to load vertex function")
             }
-            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment") else {
+            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment_grey") else {
                 fatalError("Unable to load fragment function")
             }
             
@@ -151,6 +165,7 @@ struct WaveSimulationView: NSViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
             sizeChangeTimer?.invalidate()
             sizeChangeTimer = Timer.scheduledTimer(withTimeInterval: sizeChangeTime, repeats: false) { _ in
+                self.device_scale = view.window!.backingScaleFactor
                 self.resize(size: size)
             }
         }
@@ -211,6 +226,8 @@ struct WaveSimulationView: NSViewRepresentable {
             
             let commandBuffer = commandQueue.makeCommandBuffer()
             uniforms.time = Float(CFAbsoluteTimeGetCurrent()-startTime)
+            uniforms.resolution = SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height))
+            syncViewModel()
 
             // Compute Pass
             if viewModel.play {
@@ -220,7 +237,7 @@ struct WaveSimulationView: NSViewRepresentable {
                 computeEncoder.setBuffer(u_p, offset: 0, index: 0)
                 computeEncoder.setBuffer(u_c, offset: 0, index: 1)
                 computeEncoder.setBuffer(u_n, offset: 0, index: 2)
-                computeEncoder.setBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 3)
+                computeEncoder.setBytes(&uniforms, length: MemoryLayout<WaveUniforms>.stride, index: 3)
                 
                 let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
                 
@@ -249,10 +266,9 @@ struct WaveSimulationView: NSViewRepresentable {
             renderEncoder.setRenderPipelineState(rPipelineState)
             
             // update uniform
-            self.uniforms.resolution = SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height))
             
             let u = u_curr
-            renderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<WaveSimUniforms>.stride, index: 0)
+            renderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<WaveUniforms>.stride, index: 0)
             renderEncoder.setFragmentBuffer(u, offset: 0, index: 1)
             
             renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 6)

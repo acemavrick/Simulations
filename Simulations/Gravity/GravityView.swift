@@ -37,6 +37,7 @@ struct GravityView: View {
                 }
                 .padding()
             }
+            .allowsHitTesting(false)
         }
     }
 }

@@ -13,7 +13,7 @@ struct GravityController: NSViewRepresentable {
     @ObservedObject var viewModel: GravityViewModel
     
     func makeCoordinator() -> Coordinator {
-        return Coordinator(self, viewModel: self.viewModel, scale: 0.5)
+        return Coordinator(self, viewModel: self.viewModel, scale: 1.0)
     }
     
     func updateNSView(_ nsView: MTKView, context: Context) {
@@ -157,12 +157,12 @@ struct GravityController: NSViewRepresentable {
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-            // No additional updates needed for now
         }
         
         func draw(in view: MTKView) {
             if (uniforms.setResolution(view.drawableSize)) {
                 // changed
+                self.dscale = Float(view.window!.backingScaleFactor)
                 initTexture()
             }
             syncViewModel()

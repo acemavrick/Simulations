@@ -2,7 +2,6 @@
 //  GravityUniforms.swift
 //  Simulations
 //
-//  Created by Shubh Randeria on 12/21/24.
 //
 
 import Foundation

@@ -7,7 +7,7 @@
 import Foundation
 import MetalKit
 
-struct WaveSimUniforms {
+struct WaveUniforms {
     var dx: Float
     var dt: Float
     var c: Float

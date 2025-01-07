@@ -11,7 +11,7 @@
 
 using namespace metal;
 
-struct WaveSimUniforms {
+struct WaveUniforms {
     // for use in Wave Simulation
     float dx, dt, c, time, damper;
     float2 resolution, simSize;
@@ -41,7 +41,7 @@ float get(device float* buffer, int x, int y, float2 dims) {
 kernel void wave_compute(device float* u_p [[buffer(0)]],
                          device float* u_c [[buffer(1)]],
                          device float* u_n [[buffer(2)]],
-                         constant WaveSimUniforms &uniforms [[buffer(3)]],
+                         constant WaveUniforms &uniforms [[buffer(3)]],
                          uint2 gid [[thread_position_in_grid]]) {
     // fill out
     int index = int(gid.y * uniforms.simSize.x + gid.x);
@@ -74,7 +74,7 @@ kernel void wave_compute(device float* u_p [[buffer(0)]],
 kernel void wave_copy(device float* u_p [[buffer(0)]],
                       device float* u_c [[buffer(1)]],
                         device float* u_n [[buffer(2)]],
-                      constant WaveSimUniforms &uniforms [[buffer(3)]],
+                      constant WaveUniforms &uniforms [[buffer(3)]],
                       uint2 gid [[thread_position_in_grid]]) {
     uint width = uniforms.simSize.x;
     uint height = uniforms.simSize.y;
@@ -90,13 +90,13 @@ kernel void wave_copy(device float* u_p [[buffer(0)]],
     
 }
 
-float3 cmap(constant WaveSimUniforms &uniforms,
+float3 cmap(constant WaveUniforms &uniforms,
             float val) {
     return uniforms.c0 + val*(uniforms.c1 + val*(uniforms.c2 + val*(uniforms.c3 + val*(uniforms.c4 + val*(uniforms.c5 + val*uniforms.c6)))));
 }
 
 fragment float4 wave_fragment(float4 fragCoord [[position]],
-                              constant WaveSimUniforms &uniforms [[buffer(0)]],
+                              constant WaveUniforms &uniforms [[buffer(0)]],
                               constant float *u [[buffer(1)]]) {
     uint2 loc = uint2(fragCoord.xy);
     uint2 i = uint2(clamp(loc, uint2(0), uint2(uniforms.simSize - 1)));
@@ -107,7 +107,7 @@ fragment float4 wave_fragment(float4 fragCoord [[position]],
 }
 
 fragment float4 wave_fragment_grey(float4 fragCoord [[position]],
-                              constant WaveSimUniforms &uniforms [[buffer(0)]],
+                              constant WaveUniforms &uniforms [[buffer(0)]],
                               constant float *u [[buffer(1)]]) {
     uint2 loc = uint2(fragCoord.xy);
     uint2 i = uint2(clamp(loc, uint2(0), uint2(uniforms.simSize - 1)));
@@ -118,7 +118,7 @@ fragment float4 wave_fragment_grey(float4 fragCoord [[position]],
 }
 
 fragment float4 wave_fragment_test(float4 fragCoord [[position]],
-                                   constant WaveSimUniforms &uniforms [[buffer(0)]]) {
+                                   constant WaveUniforms &uniforms [[buffer(0)]]) {
     float2 val = uniforms.resolution/uniforms.simSize;
 //    float3 color = mix(float3(0.0, 0.0, 1.0), float3(1.0, 0.0, 0.0), val);
     return float4(val,0.0, 1.0);
