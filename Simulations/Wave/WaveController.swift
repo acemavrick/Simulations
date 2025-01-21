@@ -10,16 +10,16 @@ import MetalKit
 import Combine
 
 struct WaveController: NSViewRepresentable {
-    @ObservedObject var viewModel: WaveViewModel
+    @ObservedObject var model: WaveModel
     
     func makeCoordinator() -> WaveCoordinator {
-        WaveCoordinator(self, viewModel: self.viewModel, size: 1000, dx: 0.0005, dt: 0.00005, c: 4.0)
+        WaveCoordinator(self, model: self.model, size: 1000, dx: 0.0005, dt: 0.00005, c: 4.0)
     }
     
     func updateNSView(_ nsView: MTKView, context: Context) {
         // nothing so far
     }
-
+    
     func makeNSView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero)
         view.device = MTLCreateSystemDefaultDevice()
@@ -32,8 +32,8 @@ struct WaveController: NSViewRepresentable {
     class WaveCoordinator: NSObject, MTKViewDelegate {
         var device_scale: CGFloat = 1.0
         var sizeChangeTimer: Timer?
-        var sizeChangeTime: TimeInterval = 0.2
-        var viewModel: WaveViewModel
+        var sizeChangeTime: TimeInterval = 0.1
+        var model: WaveModel
         var parent: WaveController
         var commandQueue: MTLCommandQueue?
         var renderPipelineState: MTLRenderPipelineState?
@@ -45,26 +45,26 @@ struct WaveController: NSViewRepresentable {
         var u_prev: MTLBuffer?
         var u_curr: MTLBuffer?
         var u_next: MTLBuffer?
-        var upPtr: UnsafeMutablePointer<Float>?
-        var ucPtr: UnsafeMutablePointer<Float>?
-        var unPtr: UnsafeMutablePointer<Float>?
+        var upPtr: UnsafeMutablePointer<SIMD2<Float>>?
+        var ucPtr: UnsafeMutablePointer<SIMD2<Float>>?
+        var unPtr: UnsafeMutablePointer<SIMD2<Float>>?
         var cancellables: Set<AnyCancellable> = []
         
-        init(_ parent: WaveController, viewModel: WaveViewModel, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
+        init(_ parent: WaveController, model: WaveModel, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
             self.parent = parent
-            self.viewModel = viewModel
+            self.model = model
             self.size = SIMD2<Float>(s, s)
             self.uniforms = WaveUniforms(dx: dx, dt: dt, c: c,
-                                            resolution: SIMD2<Float>(0, 0),
-                                            simSize: size)
+                                         resolution: SIMD2<Float>(0, 0),
+                                         simSize: size)
             super.init()
-            self.observeViewModel()
+            observeViewModel()
             setupMetalResources()
         }
         
         func syncViewModel() {
             let unis = self.uniforms
-            let viewModel = self.viewModel
+            let viewModel = self.model
             DispatchQueue.main.async {
                 viewModel.dx = unis.dx
                 viewModel.dt = unis.dt
@@ -75,15 +75,31 @@ struct WaveController: NSViewRepresentable {
         }
         
         func observeViewModel() {
-            // subscribe to tapLocation
-            viewModel.$tapLocation
-                .sink { [weak self] location in
-                    guard let self=self else { return }
-                    guard let location=location else { return }
-                    print("tap at \(location)")
-                    let x = location.x * self.device_scale
-                    let y = location.y * self.device_scale
-                    gaussianPulse(x: Int(x), y: Int(y), r: 5)
+            model.$tapValue
+                .sink { value in
+                    guard let value = value else { return }
+                    let x = value.location.x * self.device_scale
+                    let y = value.location.y * self.device_scale
+                    let shiftClicked = NSEvent.modifierFlags.contains(.shift)
+                    if shiftClicked {
+                        self.gaussianPulse(x: Int(x), y: Int(y), r: 20, stdev: 0.0, isBlock: true)
+                    } else {
+                           self.gaussianPulse(x: Int(x), y: Int(y), r: 5)
+                    }
+                }
+                .store(in: &cancellables)
+            
+            model.$dragValue
+                .sink { value in
+                    guard let value = value else { return }
+                    let x = value.location.x * self.device_scale
+                    let y = value.location.y * self.device_scale
+                    let shiftClicked = NSEvent.modifierFlags.contains(.shift)
+                    if shiftClicked {
+                        self.gaussianPulse(x: Int(x), y: Int(y), r: 20, stdev: 0.0, isBlock: true)
+                    } else {
+                        self.gaussianPulse(x: Int(x), y: Int(y), r: 5)
+                    }
                 }
                 .store(in: &cancellables)
         }
@@ -106,7 +122,7 @@ struct WaveController: NSViewRepresentable {
             guard let vertexFunction = library?.makeFunction(name: "wave_vertex") else {
                 fatalError("Unable to load vertex function")
             }
-            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment_grey") else {
+            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment") else {
                 fatalError("Unable to load fragment function")
             }
             
@@ -132,7 +148,7 @@ struct WaveController: NSViewRepresentable {
         }
         
         func initBuffers() {
-            let bufferSize = Int(size.x * size.y) * MemoryLayout<Float>.stride
+            let bufferSize = Int(size.x * size.y) * MemoryLayout<SIMD2<Float>>.stride
             
             guard let device = MTLCreateSystemDefaultDevice() else {
                 fatalError("Metal device not available.")
@@ -141,25 +157,27 @@ struct WaveController: NSViewRepresentable {
             u_curr = device.makeBuffer(length: bufferSize, options: .storageModeShared)
             u_next = device.makeBuffer(length: bufferSize, options: .storageModeShared)
             
-            // Clear the buffers
+            // clear the buffers
             let xTimesY = Int(size.x * size.y)
-            self.upPtr = u_prev?.contents().bindMemory(to: Float.self, capacity: xTimesY)
-            self.ucPtr = u_curr?.contents().bindMemory(to: Float.self, capacity: xTimesY)
-            self.unPtr = u_next?.contents().bindMemory(to: Float.self, capacity: xTimesY)
+            
+            self.upPtr = u_prev?.contents().bindMemory(to: SIMD2<Float>.self, capacity: xTimesY)
+            self.ucPtr = u_curr?.contents().bindMemory(to: SIMD2<Float>.self, capacity: xTimesY)
+            self.unPtr = u_next?.contents().bindMemory(to: SIMD2<Float>.self, capacity: xTimesY)
+            
+            let defval = SIMD2<Float>(0.0, 1.0)
             
             for i in 0..<xTimesY {
-                upPtr?[i] = 0.0
-                ucPtr?[i] = 0.0
+                upPtr?[i] = defval
+                ucPtr?[i] = defval
             }
             
             for i in 0..<xTimesY {
-                unPtr?[i] = upPtr?[i] ?? 0.0
+                unPtr?[i] = upPtr?[i] ?? defval
             }
             
             if u_prev == nil || u_curr == nil || u_next == nil {
                 fatalError("Could not create buffers")
             }
-
         }
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -171,22 +189,21 @@ struct WaveController: NSViewRepresentable {
         }
         
         func resize(size: CGSize) {
-            print("resizing to \(size)")
-            let runstate = viewModel.play
-            viewModel.play = false
+            let runstate = model.play
+            model.play = false
             self.size = SIMD2<Float>(Float(size.width), Float(size.height))
             uniforms.resolution = SIMD2<Float>(Float(size.width), Float(size.height))
             uniforms.simSize = uniforms.resolution
             initBuffers()
-            viewModel.play = runstate
+            model.play = runstate
         }
         
         func ring(x: Int, y: Int, a: Float = 1.0, rOuter: Int, rInner: Int) {
             // make a ring
             for i in -rOuter...rOuter {
                 for j in -rOuter...rOuter {
-                    let xi = Int(x) + i
-                    let yj = Int(y) + j
+                    let xi = x + i
+                    let yj = y + j
                     if 0 <= xi && xi < Int(size.x) && 0 <= yj && yj < Int(size.y) {
                         let distanceSquared = Float(i * i + j * j)
                         if distanceSquared <= Float(rOuter * rOuter) && distanceSquared >= Float(rInner * rInner) {
@@ -197,24 +214,66 @@ struct WaveController: NSViewRepresentable {
             }
         }
         
-        func gaussianPulse(x: Int, y: Int, r: Int, stdev: Float = 0.0, a: Float = 1.0) {
+        func gaussianPulse(x: Int, y: Int, r: Int, stdev: Float = 0.0, a: Float = 1.0, isBlock: Bool = false) {
             // make a pulse centered at x, y with standard deviation stdev
             guard let ucptr = self.ucPtr else { return }
-            
             let sigma = (stdev <= 0.0) ? Float(r) / 2 : stdev
+            // do from shader
+            
             for i in -r...r {
                 for j in -r...r {
-                    let xi = Int(x) + i
-                    let yj = Int(y) + j
+                    let xi = x + i
+                    let yj = y + j
                     if 0 <= xi && xi < Int(size.x) && 0 <= yj && yj < Int(size.y) {
                         let distanceSquared = Float(i * i + j * j)
                         if distanceSquared <= Float(r * r) {
-                            ucptr[xi + yj * Int(size.x)] = a * exp(-distanceSquared / (2 * sigma * sigma))
+                            if isBlock {
+                                ucptr[xi + yj * Int(size.x)].y = 0.0
+                            } else {
+                                ucptr[xi + yj * Int(size.x)].x = a * exp(-distanceSquared / (2 * sigma * sigma))
+                            }
                         }
                     }
                 }
             }
-            print("gaussian pulse at \(x), \(y)")
+        }
+
+        func gaussianPulseAsync(x: Int, y: Int, r: Int, stdev: Float = 0.0, a: Float = 1.0, isBlock: Bool = false) async {
+            // make a pulse centered at x, y with standard deviation stdev
+            guard let ucptr = self.ucPtr else { return }
+            let sigma = (stdev <= 0.0) ? Float(r) / 2 : stdev
+            let range = -r...r
+            let totalTasks = ProcessInfo.processInfo.activeProcessorCount
+            let step = range.count / totalTasks
+            
+            func processRange(start: Int, end: Int) {
+                for i in start...end {
+                    for j in range {
+                        let xi = x + i
+                        let yj = y + j
+                        if 0 <= xi && xi < Int(size.x) && 0 <= yj && yj < Int(size.y) {
+                            let distanceSquared = Float(i * i + j * j)
+                            if distanceSquared <= Float(r * r) {
+                                if isBlock {
+                                    ucptr[xi + yj * Int(size.x)].y = 0.0
+                                } else {
+                                    ucptr[xi + yj * Int(size.x)].x = a * exp(-distanceSquared / (2 * sigma * sigma))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            await withTaskGroup(of: Void.self) { group in
+                for ti in 0..<totalTasks {
+                    group.addTask {
+                        let start = range.lowerBound + ti * step
+                        let end = ti == totalTasks - 1 ? range.upperBound : start + step
+                        processRange(start: start, end: end)
+                    }
+                }
+            }
         }
         
         func draw(in view: MTKView) {
@@ -230,7 +289,7 @@ struct WaveController: NSViewRepresentable {
             syncViewModel()
 
             // Compute Pass
-            if viewModel.play {
+            if model.play {
                 // only compute if simulation is running
                 guard let computeEncoder = commandBuffer?.makeComputeCommandEncoder() else { return }
                 
