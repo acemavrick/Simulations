@@ -82,6 +82,17 @@ struct GravityController: NSViewRepresentable {
             print("added mass")
         }
         
+        func circleMasses(_ center: SIMD2<Float>, fixed: Bool, mass m: Float = 100) {
+            let r = 250
+            let num = 160
+            let dtheta = 2*Float.pi/Float(num)
+            for i in 0..<num {
+                let x = center.x + Float(r) * cos(Float(i) * dtheta)
+                let y = center.y + Float(r) * sin(Float(i) * dtheta)
+                addMass(PtMass(x: x, y: y, mass: Float(m), fixed: fixed))
+            }
+        }
+        
         func syncViewModel() {
             let unis = self.uniforms
             let viewModel = self.viewModel
@@ -90,9 +101,19 @@ struct GravityController: NSViewRepresentable {
                 if (viewModel.tapLocation != nil) {
                     print("detected tap at \(viewModel.tapLocation!)")
                     let tap = viewModel.tapLocation!
-                    slf.addMass(PtMass(x: Float(tap.x) * slf.dscale * unis.scale, y: Float(tap.y) * self.dscale * unis.scale, mass: 1000))
+                    let isOptCLick = NSEvent.modifierFlags.contains(.option)
+                    let isCmdClick = NSEvent.modifierFlags.contains(.command)
+                    let isShiftClick = NSEvent.modifierFlags.contains(.shift)
+                    let mass = Float(true ? -1000.0 : 1000.0)
+                    if (isCmdClick) {
+                        slf.circleMasses(SIMD2<Float>(Float(tap.x) * slf.dscale * unis.scale, Float(tap.y) * self.dscale * unis.scale), fixed: isOptCLick, mass: mass)
+                    } else {
+                        slf.addMass(PtMass(x: Float(tap.x) * slf.dscale * unis.scale, y: Float(tap.y) * self.dscale * unis.scale, mass: mass, fixed: isOptCLick))
+                    }
                     viewModel.tapLocation = nil
                 }
+            }
+            DispatchQueue.main.async {
                 viewModel.numMasses = unis.numMasses
                 viewModel.resolution = unis.resolution
                 viewModel.scale = unis.scale

@@ -20,6 +20,12 @@ struct GravityView: View {
                             print("tap at \(viewModel.tapLocation!)")
                         })
                 )
+                .gesture(
+                    DragGesture()
+                        .onChanged({ value in
+                            viewModel.tapLocation = value.location
+                        })
+                )
 
             // info pane
             // read from viewModel
@@ -35,6 +41,7 @@ struct GravityView: View {
                     Text("dt: \(String(format: "%0.4f", viewModel.dt))")
                     Text("Min Coll Dist: \(String(format: "%0.4f", viewModel.collisionDist))")
                 }
+                .foregroundStyle(.white)
                 .padding()
             }
             .allowsHitTesting(false)
