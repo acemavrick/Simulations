@@ -30,33 +30,62 @@ struct WaveController: NSViewRepresentable {
     }
     
     class WaveCoordinator: NSObject, MTKViewDelegate {
+        var model: WaveModel
+        var parent: WaveController
+        var uniforms: WaveUniforms
+        var cancellables: Set<AnyCancellable> = []
+        var startTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+
         var device_scale: CGFloat = 1.0
         var sizeChangeTimer: Timer?
         var sizeChangeTime: TimeInterval = 0.1
-        var model: WaveModel
-        var parent: WaveController
+        var size: SIMD2<Float>
+        
         var commandQueue: MTLCommandQueue?
         var renderPipelineState: MTLRenderPipelineState?
-        var size: SIMD2<Float>
-        var uniforms: WaveUniforms
+        var blankPipelineState: MTLRenderPipelineState?
         var computePipelineState: MTLComputePipelineState?
         var copyPipelineState: MTLComputePipelineState?
-        var startTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+
         var u_prev: MTLBuffer?
         var u_curr: MTLBuffer?
         var u_next: MTLBuffer?
         var upPtr: UnsafeMutablePointer<SIMD2<Float>>?
         var ucPtr: UnsafeMutablePointer<SIMD2<Float>>?
         var unPtr: UnsafeMutablePointer<SIMD2<Float>>?
-        var cancellables: Set<AnyCancellable> = []
+        
+        
+        var lastFrameTime: CFTimeInterval = 1.0
+        var fps: Double = 0.0
+        var fpsFrameCount: Int = 0
+        var fpsMaxFrames: Int = 30
+        
+        var rpf: Int = 5
+        var rpfFrameCount: Int = 0
+        var avgHeadroom: Double = 0.0
+        var headroom: Double = 0.0
+        let frameBudget: Double = 1.0/60.0 // 60 FPS target
+        
+        /// # Explanation for Dynamic RPF
+        ///  Each frame, the simulation is computed a certain number of times, `rpf` (renders per frame). By multiplying RPF and FPS,
+        ///  we can get the "effective FPS" – the actual amount of times the simulation computes each second. The RPF significantly affects
+        ///  the FPS of the sim: if it is too high, performance takes a hit and FPS drops. This is not ideal. To fix this, we attempt to dynamically
+        ///  change the RPF to approach the most we can while staying at a stable 60 FPS.
+        ///  One way to do this is to calculate the GPU headroom (time left in a frame) per frame and adjust RPF so that it is minimized. However,
+        ///  this approach results in the RPF changing almost every frame and a rapid variation of speed in the simulation's waves- an effect
+        ///  visually similar to low FPS and quite disturbing.
+        ///  An alternative to that is to take measurements over a range of frames, so that we
+        ///  adjust the RPF every N frames, which slows down the oscillation. The downside of this is that we reduce the reactivity of the process,
+        ///  meaning that rapid changes in optimal RPF result in large times when the user has to deal with bad FPS. **We use this method to
+        ///  calculate the FPS.**
+
         
         init(_ parent: WaveController, model: WaveModel, size s: Float, dx: Float = 1, dt: Float = 0.01, c: Float = 1) {
             self.parent = parent
             self.model = model
             self.size = SIMD2<Float>(s, s)
             self.uniforms = WaveUniforms(dx: dx, dt: dt, c: c,
-                                         resolution: SIMD2<Float>(0, 0),
-                                         simSize: size)
+                                         resolution: SIMD2<Float>(0, 0))
             super.init()
             observeViewModel()
             setupMetalResources()
@@ -64,6 +93,7 @@ struct WaveController: NSViewRepresentable {
         
         func syncViewModel() {
             let unis = self.uniforms
+            let slf = self
             let viewModel = self.model
             DispatchQueue.main.async {
                 viewModel.dx = unis.dx
@@ -71,10 +101,18 @@ struct WaveController: NSViewRepresentable {
                 viewModel.c = unis.c
                 viewModel.dampening = unis.damper
                 viewModel.resolution = unis.resolution
+                viewModel.FPS = slf.fps
+                viewModel.RPF = Double(slf.rpf)
             }
         }
         
         func observeViewModel() {
+            model.$RPF
+                .sink { value in
+                    self.rpf = Int(value)
+                }
+                .store(in: &cancellables)
+            
             model.$tapValue
                 .sink { value in
                     guard let value = value else { return }
@@ -84,7 +122,7 @@ struct WaveController: NSViewRepresentable {
                     if shiftClicked {
                         self.gaussianPulse(x: Int(x), y: Int(y), r: 20, stdev: 0.0, isBlock: true)
                     } else {
-                           self.gaussianPulse(x: Int(x), y: Int(y), r: 5)
+                        self.gaussianPulse(x: Int(x), y: Int(y), r: 8)
                     }
                 }
                 .store(in: &cancellables)
@@ -98,7 +136,7 @@ struct WaveController: NSViewRepresentable {
                     if shiftClicked {
                         self.gaussianPulse(x: Int(x), y: Int(y), r: 20, stdev: 0.0, isBlock: true)
                     } else {
-                        self.gaussianPulse(x: Int(x), y: Int(y), r: 5)
+                        self.gaussianPulse(x: Int(x), y: Int(y), r: 8)
                     }
                 }
                 .store(in: &cancellables)
@@ -122,8 +160,9 @@ struct WaveController: NSViewRepresentable {
             guard let vertexFunction = library?.makeFunction(name: "wave_vertex") else {
                 fatalError("Unable to load vertex function")
             }
-            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment") else {
-                fatalError("Unable to load fragment function")
+            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment"),
+                  let blankFunction = library?.makeFunction(name: "wave_fragment_blank") else {
+                fatalError("Unable to load fragment functions")
             }
             
             // set up render pipeline
@@ -132,8 +171,14 @@ struct WaveController: NSViewRepresentable {
             renderPipelineDescriptor.fragmentFunction = fragmentFunction
             renderPipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
             
+            let blankDescriptor = MTLRenderPipelineDescriptor()
+            blankDescriptor.vertexFunction = vertexFunction
+            blankDescriptor.fragmentFunction = blankFunction
+            blankDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+
             do {
                 self.renderPipelineState = try device.makeRenderPipelineState(descriptor: renderPipelineDescriptor)
+                self.blankPipelineState = try device.makeRenderPipelineState(descriptor: blankDescriptor)
             } catch {
                 fatalError("Unable to compile render pipeline state: \(error)")
             }
@@ -181,22 +226,29 @@ struct WaveController: NSViewRepresentable {
         }
         
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+            // pausing the sim makes sense since we reset pretty much everything when resized
+            let m = model
+            DispatchQueue.main.async {
+                m.play = false
+                m.visible = false
+            }
             sizeChangeTimer?.invalidate()
             sizeChangeTimer = Timer.scheduledTimer(withTimeInterval: sizeChangeTime, repeats: false) { _ in
                 self.device_scale = view.window!.backingScaleFactor
-                self.resize(size: size)
+                
+                // resize
+                self.size = SIMD2<Float>(Float(size.width), Float(size.height))
+                self.uniforms.resolution = SIMD2<Float>(Float(size.width), Float(size.height))
+                
+                self.initBuffers()
+                
+                // reset rps values
+                self.rpfFrameCount = 0
+                self.avgHeadroom = 0.0
+                m.visible = true
             }
         }
         
-        func resize(size: CGSize) {
-            let runstate = model.play
-            model.play = false
-            self.size = SIMD2<Float>(Float(size.width), Float(size.height))
-            uniforms.resolution = SIMD2<Float>(Float(size.width), Float(size.height))
-            uniforms.simSize = uniforms.resolution
-            initBuffers()
-            model.play = runstate
-        }
         
         func ring(x: Int, y: Int, a: Float = 1.0, rOuter: Int, rInner: Int) {
             // make a ring
@@ -217,8 +269,7 @@ struct WaveController: NSViewRepresentable {
         func gaussianPulse(x: Int, y: Int, r: Int, stdev: Float = 0.0, a: Float = 1.0, isBlock: Bool = false) {
             // make a pulse centered at x, y with standard deviation stdev
             guard let ucptr = self.ucPtr else { return }
-            let sigma = (stdev <= 0.0) ? Float(r) / 2 : stdev
-            // do from shader
+            let sigma = (stdev <= 0.0) ? Float(r) / 3 : stdev
             
             for i in -r...r {
                 for j in -r...r {
@@ -277,6 +328,31 @@ struct WaveController: NSViewRepresentable {
         }
         
         func draw(in view: MTKView) {
+            fpsFrameCount += 1
+            rpfFrameCount += 1
+
+            // calculate FPS
+            if (fpsFrameCount == fpsMaxFrames) {
+                let ctime = CACurrentMediaTime()
+                let dtime = ctime-lastFrameTime
+                self.fps = Double(fpsMaxFrames)/(dtime)
+                lastFrameTime = ctime
+                fpsFrameCount = 0
+            }
+
+            if (model.play && model.dynamicRPF) {
+                if (self.avgHeadroom <= -0.001) {
+                    self.avgHeadroom = 0
+                    self.rpf -= 1
+                }
+                if (self.avgHeadroom >=  0.001) {
+                    self.avgHeadroom = 0
+                    self.rpf += 1
+                }
+            }
+            
+            self.rpf = max(1, self.rpf)
+
             guard let drawable = view.currentDrawable,
                   let commandQueue = self.commandQueue,
                   let u_p = self.u_prev,
@@ -306,7 +382,7 @@ struct WaveController: NSViewRepresentable {
                     depth: 1
                 )
                 
-                for _ in 0..<5 {
+                for _ in 0..<self.rpf {
                     computeEncoder.setComputePipelineState(self.computePipelineState!)
                     computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
                     
@@ -320,11 +396,14 @@ struct WaveController: NSViewRepresentable {
             // Render Pass
             guard let renderPassDescriptor = view.currentRenderPassDescriptor,
                   let renderEncoder = commandBuffer?.makeRenderCommandEncoder(descriptor: renderPassDescriptor),
-                  let rPipelineState = self.renderPipelineState else { return }
+                  let rPipelineState = self.renderPipelineState,
+                  let bPipelineState = self.blankPipelineState else { return }
             
-            renderEncoder.setRenderPipelineState(rPipelineState)
-            
-            // update uniform
+            if model.visible {
+                renderEncoder.setRenderPipelineState(rPipelineState)
+            } else {
+                renderEncoder.setRenderPipelineState(bPipelineState)
+            }
             
             let u = u_curr
             renderEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<WaveUniforms>.stride, index: 0)
@@ -334,6 +413,13 @@ struct WaveController: NSViewRepresentable {
             renderEncoder.endEncoding()
             
             // commit
+            commandBuffer?.addCompletedHandler { commandBuffer in
+                // compute headroom
+                let headroom = self.frameBudget - commandBuffer.gpuEndTime + commandBuffer.gpuStartTime
+                
+                // add current headroom to average
+                self.avgHeadroom += (headroom - self.avgHeadroom) / Double(self.rpfFrameCount)
+            }
             commandBuffer?.present(drawable)
             commandBuffer?.commit()
         }
