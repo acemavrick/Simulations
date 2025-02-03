@@ -130,9 +130,9 @@ float3 cmap(float2 point) {
     // the direction of the electric field is the hue of the pixel
 //    float radius = step(0.0, point.x) * 0.294*exp(0.01*point.x*exp(-0.003*(point.x + 1.9))) * step(point.x, 333.0) + 1.0 * step(333.0, point.x);
     float hue = point.y / TWO_PI;
-    float sat = exp(-0.01*point.x);
-    float val = log(1.0 + 10.0*point.x);
-    return hsv2rgb(float3(hue, sat, val));
+    float sat = exp(-0.01 * point.x);
+    float val = 0.5 + 0.5 * tanh(5.0 * point.x);
+    return hsv2rgb(float3(hue, sat, 1.0));
 
     
 //    return step(0.0, val) * 0.294*exp(0.01*val*exp(-0.003*(val + 1.9))) * step(val, 333.0) + 1.0 * step(333.0, val);
@@ -160,6 +160,12 @@ fragment float4 es_fragment(float4 position [[position]],
     
     // convert cfield x and y to magnitude and direction
     float2 convert = float2(length(cfield), atan2(cfield.y, cfield.x));
+    float3 color = cmap(convert);
     
-    return float4(cmap(convert), 1.0);
+    float val = -12*convert.x / (11 * convert.x + 1) + 1;
+    float modded = fmod(val * 10.0, 1.0);
+    
+    //    float modulation = step(0.5, cos(0.05 * dot(position.xy, normalize(float2(cos(convert.y), sin(convert.y))))));
+    color *= 1.0 - modded;
+    return float4(color, 1.0);
 }
