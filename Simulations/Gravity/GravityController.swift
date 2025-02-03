@@ -79,7 +79,6 @@ struct GravityController: NSViewRepresentable {
             self.cBuffer = cBuffer
             
             uniforms.addMass()
-            print("added mass")
         }
         
         func circleMasses(_ center: SIMD2<Float>, fixed: Bool, mass m: Float = 100) {
@@ -99,7 +98,6 @@ struct GravityController: NSViewRepresentable {
             let slf = self
             DispatchQueue.main.async {
                 if (viewModel.tapLocation != nil) {
-                    print("detected tap at \(viewModel.tapLocation!)")
                     let tap = viewModel.tapLocation!
                     let isOptCLick = NSEvent.modifierFlags.contains(.option)
                     let isCmdClick = NSEvent.modifierFlags.contains(.command)

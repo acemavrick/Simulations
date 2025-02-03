@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DBD458E42D47D92E00B0BB2D /* AudioKit in Frameworks */ = {isa = PBXBuildFile; productRef = DBD458E32D47D92E00B0BB2D /* AudioKit */; };
 		DBEF7B4D2D0F50340076BB67 /* MetalPerformanceShaders.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B4A2D0F50340076BB67 /* MetalPerformanceShaders.framework */; };
 		DBF0A1312D132A140006E737 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B482D0F50340076BB67 /* Metal.framework */; };
 		DBF0A1342D132A160006E737 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBEF7B492D0F50340076BB67 /* MetalKit.framework */; };
@@ -34,6 +35,7 @@
 			files = (
 				DBF0A1342D132A160006E737 /* MetalKit.framework in Frameworks */,
 				DBF0A1312D132A140006E737 /* Metal.framework in Frameworks */,
+				DBD458E42D47D92E00B0BB2D /* AudioKit in Frameworks */,
 				DBEF7B4D2D0F50340076BB67 /* MetalPerformanceShaders.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -88,6 +90,7 @@
 			);
 			name = Simulations;
 			packageProductDependencies = (
+				DBD458E32D47D92E00B0BB2D /* AudioKit */,
 			);
 			productName = Simulations;
 			productReference = DBEF7B2D2D0F4F920076BB67 /* Simulations.app */;
@@ -117,6 +120,9 @@
 			);
 			mainGroup = DBEF7B242D0F4F920076BB67;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				DBD458E22D47D92E00B0BB2D /* XCRemoteSwiftPackageReference "AudioKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DBEF7B2E2D0F4F920076BB67 /* Products */;
 			projectDirPath = "";
@@ -344,6 +350,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DBD458E22D47D92E00B0BB2D /* XCRemoteSwiftPackageReference "AudioKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AudioKit/AudioKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.6.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DBD458E32D47D92E00B0BB2D /* AudioKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DBD458E22D47D92E00B0BB2D /* XCRemoteSwiftPackageReference "AudioKit" */;
+			productName = AudioKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DBEF7B252D0F4F920076BB67 /* Project object */;
 }

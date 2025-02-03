@@ -16,7 +16,7 @@ struct GravityUniforms {
     init(screen_resolution resolution: [Float], units_per_pixel scale: Float, dt: Float, numMasses: Int) {
         self.G = 11.1
         self.dt = 0.1
-        self.collisionDist = 0.0
+        self.collisionDist = 10.0
         self.resolution = SIMD2<Float>(resolution[0], resolution[1])
         self.numMasses = numMasses
         self.scale = scale

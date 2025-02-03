@@ -8,7 +8,10 @@
 import SwiftUI
 
 struct ESView: View {
+    var onBack: () -> Void
+    
     @StateObject private var model = ESModel()
+    @State private var hovering: Bool = false
     
     var body: some View {
         ZStack {
@@ -25,6 +28,15 @@ struct ESView: View {
                             model.drag(at: value)
                         }
                 )
+            
+            HStack {
+                VStack {
+                    HomeAndPlayButton(onBack: onBack, model: model, hovering: $hovering)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(5)
             
             // info pane
             // read from viewModel
@@ -44,9 +56,10 @@ struct ESView: View {
             }
             .allowsHitTesting(false)
         }
+        .onHover { hovering in
+            withAnimation {
+                self.hovering = hovering
+            }
+        }
     }
-}
-
-#Preview {
-    ESView()
 }

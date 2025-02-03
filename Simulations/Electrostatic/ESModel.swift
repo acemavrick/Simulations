@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-class ESModel: ObservableObject {
+class ESModel: ObservableObject, HasPlayPauseToggle {
     @Published var play = true
     
     @Published var tapValue: SpatialTapGesture.Value? = nil

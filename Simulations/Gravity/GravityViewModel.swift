@@ -6,7 +6,7 @@
 
 import Foundation
 
-class GravityViewModel: ObservableObject {
+class GravityViewModel: ObservableObject, HasPlayPauseToggle {
     // to be used
     @Published var play = true
     @Published var tapLocation: CGPoint? = nil

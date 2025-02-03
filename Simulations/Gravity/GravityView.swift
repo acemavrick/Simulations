@@ -8,7 +8,9 @@
 import SwiftUI
 
 struct GravityView: View {
+    var onBack: () -> Void
     @StateObject private var viewModel = GravityViewModel()
+    @State private var hovering: Bool = false
     
     var body: some View {
         ZStack {
@@ -26,7 +28,16 @@ struct GravityView: View {
                             viewModel.tapLocation = value.location
                         })
                 )
-
+            
+            HStack {
+                VStack {
+                    HomeAndPlayButton(onBack: onBack, model: viewModel, hovering: $hovering)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(5)
+            
             // info pane
             // read from viewModel
             HStack() {
@@ -46,9 +57,11 @@ struct GravityView: View {
             }
             .allowsHitTesting(false)
         }
+        .onHover(perform: { hovering in
+            withAnimation {
+                self.hovering = hovering
+            }
+        })
     }
 }
 
-#Preview {
-    GravityView()
-}
