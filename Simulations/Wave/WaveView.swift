@@ -50,7 +50,7 @@ struct WaveView: View {
                             Text("\(String(format: "%0.0f", model.RPF, model.FPS))")
                             Text(" x ")
                             Text("\(String(format: "%0.1f", model.FPS))")
-                                .foregroundStyle(model.FPS <= 30 ? .red : model.FPS <= 55 ? .yellow : .green)
+                                .foregroundStyle(model.FPS <= 30 ? .red : model.FPS <= 55 ? .yellow : .white)
                         }
                         Toggle("Dynamic RPF", isOn: $model.dynamicRPF.animation())
                             .toggleStyle(.checkbox)

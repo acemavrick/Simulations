@@ -165,7 +165,7 @@ fragment float4 es_fragment(float4 position [[position]],
     float val = -12*convert.x / (11 * convert.x + 1) + 1;
     float modded = fmod(val * 10.0, 1.0);
     
-    //    float modulation = step(0.5, cos(0.05 * dot(position.xy, normalize(float2(cos(convert.y), sin(convert.y))))));
+//    float modulation = step(0.5, cos(0.05 * dot(position.xy, normalize(float2(cos(convert.y), sin(convert.y))))));
     color *= 1.0 - modded;
     return float4(color, 1.0);
 }

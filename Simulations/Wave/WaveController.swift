@@ -160,7 +160,7 @@ struct WaveController: NSViewRepresentable {
             guard let vertexFunction = library?.makeFunction(name: "wave_vertex") else {
                 fatalError("Unable to load vertex function")
             }
-            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment"),
+            guard let fragmentFunction = library?.makeFunction(name: "wave_fragment_grey"),
                   let blankFunction = library?.makeFunction(name: "wave_fragment_blank") else {
                 fatalError("Unable to load fragment functions")
             }
