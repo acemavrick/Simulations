@@ -11,9 +11,10 @@ import AVFoundation
 import SceneKit
 
 struct SpectroController: NSViewRepresentable {
+    var model: SpectroscapeModel
     
     func makeCoordinator() -> Coordinator {
-        return Coordinator()
+        return Coordinator(model: self.model)
     }
     
     func makeNSView(context: Context) -> SCNView {
@@ -72,16 +73,19 @@ struct SpectroController: NSViewRepresentable {
     }
     
     class Coordinator: NSObject, SCNSceneRendererDelegate {
+        var model: SpectroscapeModel
         var audioController: AudioController
         var scnView: SCNView?
         
         var waveformNodes: [SCNNode] = []
-        let maxSlices = 300
-        let zSpacing: Float = 0.1
+        let maxSlices = 400
+        let zSpacing: Float = 0.3
         let maxDepth: Float
 
-        override init() {
-            if let url = Bundle.main.url(forResource: "nuevayol", withExtension: "m4a") {
+        init(model: SpectroscapeModel) {
+            self.model = model
+            
+            if let url = Bundle.main.url(forResource: model.songname, withExtension: model.songext) {
                 audioController = AudioController(url: url)
             } else {
                 fatalError("Failed to find audio file")
@@ -96,7 +100,7 @@ struct SpectroController: NSViewRepresentable {
         
         func updateWaveform() {
             guard let scene = scnView?.scene else { return }
-            let data = audioController.waveformData
+            let data = audioController.fftData
             let newSlice = createWaveformNode(with: data)
             scene.rootNode.addChildNode(newSlice)
             
@@ -111,9 +115,10 @@ struct SpectroController: NSViewRepresentable {
                 let newZ = Float(count - index) * -zSpacing
                 node.position.z = CGFloat(newZ)
 
-                let factor = max(0.0, 0.4 - 0.7 * (abs(Float(node.position.z)) / maxDepth))
-                node.geometry?.firstMaterial?.emission.contents = NSColor.systemBlue.withAlphaComponent(CGFloat(factor))
-                node.geometry?.firstMaterial?.diffuse.contents = NSColor.systemBlue.withAlphaComponent(CGFloat(factor))
+                let factor = max(0.0, 0.3 - 0.5 * (abs(Float(node.position.z)) / maxDepth))
+                let col = NSColor.systemBlue.withAlphaComponent(CGFloat(factor))
+                node.geometry?.firstMaterial?.emission.contents = col
+                node.geometry?.firstMaterial?.diffuse.contents = col
             }
             
             waveformNodes.append(newSlice)
@@ -127,32 +132,54 @@ struct SpectroController: NSViewRepresentable {
             guard !data.isEmpty else { return SCNNode() }
             
             var vertices: [SCNVector3] = []
+            var data = data
             let count = data.count
-            // for waveform: 0.04, 12.0
-            let xScale: Float = 0.04
-            let yScale: Float = 12.0
             let halfCount = Float(count) / 2.0
             
-            for (i, value) in data.enumerated() {
-                let x = (Float(i) - halfCount) * xScale
-                let y = value * yScale
+            // smooth values (averaging, for now)
+            for i in 1..<Int(halfCount - 1) {
+                data[i] = (data[i - 1] + data[i] + data[i + 1]) / 3.0
+            }
+            
+            let totalWidth: Float = 100.0
+            
+            let sampleRate: Float = 44100.0
+            let fftBufferSize: Float = Float(audioController.fftBufferSize)
+            let deltaF = sampleRate / fftBufferSize
+            
+            let minFreq: Float = deltaF
+            let maxFreq: Float = sampleRate/2.0
+
+            for i in 1..<Int(halfCount) {
+                let freq = (i == 0) ? minFreq : Float(i) * deltaF
+                let clampedFreq = max(freq, minFreq)
+                let normalizedX = (log10(clampedFreq) - log10(minFreq)) / (log10(maxFreq) - log10(minFreq))
+                let x = normalizedX * totalWidth - totalWidth / 2.0
+                
+                let y = 0.4 * (20 * log10(max(0.0001, data[i])) + 80)
                 
                 let z: Float = 0.0
                 vertices.append(SCNVector3(x, y, z))
             }
             
-            // smooth the waveform
-            for i in 1..<count-1 {
-                let prev = vertices[i-1].y
-                let curr = vertices[i].y
-                let next = vertices[i+1].y
-                vertices[i].y = (prev + curr + next) / 3.0
+            // duplicate the vertices but negative to make a reflection
+            for i in 1..<Int(halfCount) {
+                var v = vertices[Int(halfCount) - i - 1]
+                v.y = -v.y
+                vertices.append(v)
             }
+            
+
+            //            for (i, value) in data.enumerated() {
+            //                let x: Float = Float(i) * xScale
+            //                let y: Float = Float(value) * yScale
+            //                let z: Float = 0.0
+            //                vertices.append(SCNVector3(x, y, z))
+            //            }
             
             let vertexSource = SCNGeometrySource(vertices: vertices)
             
             var indices: [Int32] = []
-            
             for i in 0..<vertices.count - 1 {
                 indices.append(Int32(i))
                 indices.append(Int32(i + 1))
@@ -177,7 +204,7 @@ class AudioController {
     var audioPlayer: AudioPlayer!
     var waveformData: [Float] = []
     var fftData: [Float] = []
-    var fftBufferSize: UInt32 = 1024
+    var fftBufferSize: UInt32 = 2048
     
     private var fftTap: FFTTap!
     private var tapInstalled = false
@@ -226,24 +253,24 @@ class AudioController {
                 slf.fftData = fftData
             }
         }
-        
-//        fftTap.start()
+        fftTap.isNormalized = false
+        fftTap.start()
         
         let format = audioPlayer.avAudioNode.outputFormat(forBus: 0)
-        audioPlayer.avAudioNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let self = self else { return }
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = Int(buffer.frameLength)
-            var samples = [Float]()
-            
-            for i in 0..<frameLength {
-                samples.append(channelData[i])
-            }
-            
-            DispatchQueue.main.async {
-                self.waveformData = samples
-            }
-        }
+//        audioPlayer.avAudioNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+//            guard let self = self else { return }
+//            guard let channelData = buffer.floatChannelData?[0] else { return }
+//            let frameLength = Int(buffer.frameLength)
+//            var samples = [Float]()
+//            
+//            for i in 0..<frameLength {
+//                samples.append(channelData[i])
+//            }
+//            
+//            DispatchQueue.main.async {
+//                self.waveformData = samples
+//            }
+//        }
         tapInstalled = true
     }
     

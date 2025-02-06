@@ -15,11 +15,17 @@ struct SpectroscopeView: View {
     
     var body: some View {
         ZStack {
-            SpectroController()
+            SpectroController(model: model)
             
             HStack {
                 VStack {
                     HomeButton(onBack: onBack, hovering: $hovering)
+                        .padding()
+                    Text("\(model.songname).\(model.songext)")
+                        .foregroundStyle(.white)
+                        .fontDesign(.monospaced)
+                        .font(.title2)
+                        .padding()
                     Spacer()
                 }
                 Spacer()
