@@ -234,7 +234,6 @@ struct SpectroController: NSViewRepresentable {
         func createWaveformNode(with data: [Float]) -> SCNNode {
             guard !data.isEmpty else { return SCNNode() }
             
-            var data = data
             var vertices: [SCNVector3] = []
             let count = data.count
             let halfCount = Float(count) / 2.0
@@ -249,9 +248,12 @@ struct SpectroController: NSViewRepresentable {
             let maxFreq: Float = sampleRate/2.0
             
             // avg
+            var avgdata: [Float] = [data[0]]
             for i in 1..<Int(halfCount-1) {
-                data[i] = (data[i-1] + 2 * data[i] + data[i+1]) / 4.0
+                avgdata.append((data[i-1] + 2 * data[i] + data[i+1]) / 4.0)
             }
+            avgdata.append(data[Int(halfCount-1)])
+            var data = avgdata
 
             for i in 0..<Int(halfCount) {
                 let freq = (i == 0) ? minFreq : Float(i) * deltaF
@@ -262,7 +264,7 @@ struct SpectroController: NSViewRepresentable {
                 // linear
 //                let x = Float(i) * totalWidth / halfCount - totalWidth / 2.0
                 
-                let y = 0.2 * (20 * log10(max(0.0001, data[i])) + 80)
+                let y = 0.4 * (20 * log10(max(0.0001, data[i])) + 80)
                 
                 vertices.append(SCNVector3(x, y, 0))
             }
